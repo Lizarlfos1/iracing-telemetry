@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Optional
 
 import irsdk
-import yaml
 
 from .variable_map import VARIABLE_MAP
 
@@ -54,26 +53,22 @@ class ParsedSession:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _parse_session_yaml(ibt: irsdk.IBT) -> dict:
-    """Parse the YAML session info header from an IBT file."""
-    header = ibt._header
-    start = header.session_info_offset
-    end = start + header.session_info_len
-    raw = ibt._shared_mem[start:end].rstrip(b'\x00').decode('cp1252')
-    return yaml.safe_load(raw)
+def _extract_session_info(ir: irsdk.IRSDK, file_path: str) -> SessionInfo:
+    """Extract session metadata from the IBT YAML header.
 
-
-def _extract_session_info(session_yaml: dict, file_path: str) -> SessionInfo:
-    """Extract session metadata from the parsed YAML header."""
-    weekend = session_yaml.get("WeekendInfo", {})
+    Uses IRSDK (which has built-in YAML sanitization) to read session info.
+    """
+    weekend = ir["WeekendInfo"] or {}
     track_name = weekend.get("TrackName", "")
     track_config = weekend.get("TrackConfigName", "")
     session_date = weekend.get("WeekendOptions", {}).get("Date", "")
 
-    drivers = session_yaml.get("DriverInfo", {}).get("Drivers", [])
+    driver_info = ir["DriverInfo"] or {}
+    drivers = driver_info.get("Drivers", [])
     car_name = drivers[0].get("CarScreenName", "") if drivers else ""
 
-    sessions = session_yaml.get("SessionInfo", {}).get("Sessions", [])
+    session_info = ir["SessionInfo"] or {}
+    sessions = session_info.get("Sessions", [])
     session_type = sessions[-1].get("SessionName", "") if sessions else ""
 
     return SessionInfo(
@@ -155,16 +150,21 @@ def parse_ibt(file_path: str) -> ParsedSession:
     ParsedSession
         Session metadata together with a list of ``ParsedLap`` objects.
     """
+    # Use IRSDK for session info (has built-in YAML sanitization)
+    ir = irsdk.IRSDK()
+    ir.startup(test_file=str(file_path))
+
+    # Use IBT for telemetry tick data
     ibt = irsdk.IBT()
     ibt.open(str(file_path))
 
     try:
-        session_yaml = _parse_session_yaml(ibt)
-        session_info = _extract_session_info(session_yaml, file_path)
+        session_info = _extract_session_info(ir, file_path)
         rows = _read_all_ticks(ibt)
         laps = _split_into_laps(rows)
     finally:
         ibt.close()
+        ir.shutdown()
 
     return ParsedSession(session_info=session_info, laps=laps)
 
