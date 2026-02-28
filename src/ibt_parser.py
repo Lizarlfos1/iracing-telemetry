@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 import irsdk
+import yaml
 
 from .variable_map import VARIABLE_MAP
 
@@ -53,23 +54,26 @@ class ParsedSession:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _extract_session_info(ibt: irsdk.IBT, file_path: str) -> SessionInfo:
-    """Extract session metadata from the IBT YAML header.
+def _parse_session_yaml(ibt: irsdk.IBT) -> dict:
+    """Parse the YAML session info header from an IBT file."""
+    header = ibt._header
+    start = header.session_info_offset
+    end = start + header.session_info_len
+    raw = ibt._shared_mem[start:end].rstrip(b'\x00').decode('cp1252')
+    return yaml.safe_load(raw)
 
-    Uses:
-      - WeekendInfo for track name, track config, and date.
-      - DriverInfo.Drivers[0].CarScreenName for the car.
-      - SessionInfo.Sessions[-1].SessionName for the session type.
-    """
-    weekend = ibt["WeekendInfo"]
+
+def _extract_session_info(session_yaml: dict, file_path: str) -> SessionInfo:
+    """Extract session metadata from the parsed YAML header."""
+    weekend = session_yaml.get("WeekendInfo", {})
     track_name = weekend.get("TrackName", "")
     track_config = weekend.get("TrackConfigName", "")
     session_date = weekend.get("WeekendOptions", {}).get("Date", "")
 
-    drivers = ibt["DriverInfo"]["Drivers"]
+    drivers = session_yaml.get("DriverInfo", {}).get("Drivers", [])
     car_name = drivers[0].get("CarScreenName", "") if drivers else ""
 
-    sessions = ibt["SessionInfo"]["Sessions"]
+    sessions = session_yaml.get("SessionInfo", {}).get("Sessions", [])
     session_type = sessions[-1].get("SessionName", "") if sessions else ""
 
     return SessionInfo(
@@ -155,7 +159,8 @@ def parse_ibt(file_path: str) -> ParsedSession:
     ibt.open(str(file_path))
 
     try:
-        session_info = _extract_session_info(ibt, file_path)
+        session_yaml = _parse_session_yaml(ibt)
+        session_info = _extract_session_info(session_yaml, file_path)
         rows = _read_all_ticks(ibt)
         laps = _split_into_laps(rows)
     finally:
