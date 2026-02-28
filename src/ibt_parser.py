@@ -53,7 +53,7 @@ class ParsedSession:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _extract_session_info(ibt: irsdk.IRSDK, file_path: str) -> SessionInfo:
+def _extract_session_info(ibt: irsdk.IBT, file_path: str) -> SessionInfo:
     """Extract session metadata from the IBT YAML header.
 
     Uses:
@@ -82,7 +82,7 @@ def _extract_session_info(ibt: irsdk.IRSDK, file_path: str) -> SessionInfo:
     )
 
 
-def _read_all_ticks(ibt: irsdk.IRSDK) -> list[dict]:
+def _read_all_ticks(ibt: irsdk.IBT) -> list[dict]:
     """Iterate over every telemetry tick and extract the mapped variables.
 
     Each row is a dict keyed by CSV column name.  The ``PositionType``
@@ -90,10 +90,10 @@ def _read_all_ticks(ibt: irsdk.IRSDK) -> list[dict]:
     """
     rows: list[dict] = []
 
-    while ibt.get_next():
+    for i in range(ibt._disk_header.session_record_count):
         row: dict = {}
         for sdk_name, csv_name, transform in VARIABLE_MAP:
-            value = ibt[sdk_name]
+            value = ibt.get(i, sdk_name)
             if transform is not None and value is not None:
                 value = transform(value)
             row[csv_name] = value
@@ -151,15 +151,15 @@ def parse_ibt(file_path: str) -> ParsedSession:
     ParsedSession
         Session metadata together with a list of ``ParsedLap`` objects.
     """
-    ibt = irsdk.IRSDK()
-    ibt.startup(test_file=str(file_path))
+    ibt = irsdk.IBT()
+    ibt.open(str(file_path))
 
     try:
         session_info = _extract_session_info(ibt, file_path)
         rows = _read_all_ticks(ibt)
         laps = _split_into_laps(rows)
     finally:
-        ibt.shutdown()
+        ibt.close()
 
     return ParsedSession(session_info=session_info, laps=laps)
 
