@@ -1,0 +1,18 @@
+# Core IBT parsing
+pyirsdk>=1.3.5
+
+# YAML parsing (pyirsdk peer dependency)
+PyYAML>=5.3
+
+# File watching
+watchdog>=3.0
+
+# System tray
+pystray>=0.19
+Pillow>=9.0
+
+# Testing
+pytest>=7.0
+
+# Packaging (dev only)
+pyinstaller>=6.0
