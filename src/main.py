@@ -55,23 +55,29 @@ def main():
         if tray:
             tray.set_status("Watching")
 
-    def initial_scan():
+    def mark_existing_files():
+        """Mark all existing .ibt files as processed so only new ones get picked up."""
+        if config.telemetry_dir.exists():
+            count = 0
+            for ibt_file in config.telemetry_dir.glob("*.ibt"):
+                if not tracker.is_processed(ibt_file):
+                    tracker.mark_processed(ibt_file)
+                    count += 1
+            if count:
+                logger.info(f"Marked {count} existing .ibt files as already processed")
+
+    def on_reprocess():
+        tracker.clear()
         if config.telemetry_dir.exists():
             for ibt_file in sorted(config.telemetry_dir.glob("*.ibt")):
                 on_file_ready(ibt_file)
 
-    def on_reprocess():
-        tracker.clear()
-        scan_thread = threading.Thread(target=initial_scan, daemon=True)
-        scan_thread.start()
+    # Mark existing files so only new sessions get processed
+    mark_existing_files()
 
     # Start file watcher in background thread
     watcher = TelemetryWatcher(config.telemetry_dir, on_file_ready)
     watcher.start()
-
-    # Run initial scan in background
-    scan_thread = threading.Thread(target=initial_scan, daemon=True)
-    scan_thread.start()
 
     # System tray runs on the main thread (required by pystray)
     from .tray import TrayApp
